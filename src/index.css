@@ -1,0 +1,43 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Noto+Sans+KR:wght@300;400;500;700&display=swap');
+
+:root {
+  --bg:      #090c10;
+  --bg2:     #0d1117;
+  --bg3:     #161b22;
+  --border:  #21262d;
+  --green:   #39d353;
+  --red:     #f85149;
+  --blue:    #58a6ff;
+  --yellow:  #e3b341;
+  --text:    #c9d1d9;
+  --text2:   #8b949e;
+  --mono:    'Space Mono', monospace;
+  --kr:      'Noto Sans KR', sans-serif;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--kr);
+  min-height: 100vh;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(57,211,83,0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(57,211,83,0.025) 1px, transparent 1px);
+  background-size: 40px 40px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+#root { position: relative; z-index: 1; }
+
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--bg2); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
