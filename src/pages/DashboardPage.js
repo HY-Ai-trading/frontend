@@ -176,6 +176,7 @@ export default function DashboardPage() {
   const [rtPrices, setRtPrices]     = useState({});
   const [wsStatus, setWsStatus]     = useState('');
   const [selSignal, setSelSignal]   = useState(null);
+  const [sigPage, setSigPage]       = useState(0);
   const wsRef                       = useRef(null);
 
   const load = useCallback(async () => {
@@ -190,7 +191,7 @@ export default function DashboardPage() {
       if (acct.status === 'fulfilled') setAccount(acct.value.data);
       else setErr('계좌 조회 실패');
       if (pnl.status === 'fulfilled') setChart(pnl.value.data || []);
-      if (sigs.status === 'fulfilled') setSignals(sigs.value.data || []);
+      if (sigs.status === 'fulfilled') { setSignals(sigs.value.data || []); setSigPage(0); }
 
       // 체결내역은 rate limit 방지를 위해 150ms 후 별도 호출
       await new Promise(r => setTimeout(r, 150));
@@ -418,76 +419,130 @@ export default function DashboardPage() {
           </Section>
 
           {/* ── AI 매매 신호 ── */}
-          <Section
-            title="AI 매매 신호"
-            badge={signals.length}
-            right={<span style={{ fontSize: 11, color: 'var(--text2)', fontFamily: 'var(--mono)' }}>행 클릭 → 상세</span>}
-          >
-            {signals.length === 0 ? (
-              <Empty msg="신호 없음 — 오픈클로가 신호를 전송하면 여기에 표시됩니다" />
-            ) : (
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                  <thead>
-                    <tr style={{ background: 'var(--bg3)' }}>
-                      <th style={thStyle('left')}>시간</th>
-                      <th style={thStyle('left')}>종목</th>
-                      <th style={thStyle()}>신호</th>
-                      <th style={thStyle()}>신뢰도</th>
-                      <th style={thStyle()}>목표가</th>
-                      <th style={thStyle('left')}>분석 근거</th>
-                      <th style={thStyle()}>상태</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {signals.map((s, i) => {
-                      const isBuy  = s.action === 'BUY';
-                      const isSell = s.action === 'SELL';
-                      const status = s.rejected ? '거부' : s.executed ? '체결' : '대기';
-                      const statusClr = s.rejected ? 'var(--red)' : s.executed ? 'var(--green)' : 'var(--text2)';
-                      return (
-                        <tr
-                          key={s.signal_id}
-                          onClick={() => setSelSignal(s)}
-                          style={{ borderTop: '1px solid var(--border)', cursor: 'pointer' }}
-                          onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.04)'}
-                          onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                        >
-                          <td style={{ padding: '11px 16px', color: 'var(--text2)', fontFamily: 'var(--mono)', fontSize: 11, whiteSpace: 'nowrap' }}>
-                            {s.created_at ? s.created_at.slice(0, 16).replace('T', ' ') : '-'}
-                          </td>
-                          <td style={{ padding: '11px 16px', whiteSpace: 'nowrap' }}>
-                            <div style={{ fontWeight: 500 }}>{s.stock_name}</div>
-                            <div style={{ color: 'var(--text2)', fontFamily: 'var(--mono)', fontSize: 11 }}>{s.stock_code}</div>
-                          </td>
-                          <td style={{ padding: '11px 16px', textAlign: 'right' }}>
-                            <span style={{
-                              padding: '2px 8px', borderRadius: 4, fontSize: 11,
-                              fontFamily: 'var(--mono)', fontWeight: 700,
-                              background: isBuy ? 'rgba(57,211,83,0.12)' : isSell ? 'rgba(248,81,73,0.12)' : 'rgba(255,255,255,0.06)',
-                              color: isBuy ? 'var(--green)' : isSell ? 'var(--red)' : 'var(--text2)',
-                            }}>
-                              {s.action}
-                            </span>
-                          </td>
-                          <td style={{ ...tdStyle(), color: s.confidence >= 0.8 ? 'var(--green)' : s.confidence >= 0.6 ? 'var(--text)' : 'var(--red)' }}>
-                            {Math.round(s.confidence * 100)}%
-                          </td>
-                          <td style={{ ...tdStyle(), color: 'var(--text2)' }}>
-                            {s.target_price ? Number(s.target_price).toLocaleString() + '원' : '-'}
-                          </td>
-                          <td style={{ padding: '11px 16px', color: 'var(--text2)', fontSize: 11, maxWidth: 220, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {s.reject_reason || s.reason || '-'}
-                          </td>
-                          <td style={{ ...tdStyle(), color: statusClr, fontWeight: 700 }}>{status}</td>
+          {(() => {
+            const PAGE_SIZE = 10;
+            const totalPages = Math.ceil(signals.length / PAGE_SIZE);
+            const pageSignals = signals.slice(sigPage * PAGE_SIZE, (sigPage + 1) * PAGE_SIZE);
+            return (
+              <Section
+                title="AI 매매 신호"
+                badge={signals.length}
+                right={
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 11, color: 'var(--text2)', fontFamily: 'var(--mono)' }}>행 클릭 → 상세</span>
+                    {totalPages > 1 && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <button
+                          onClick={() => setSigPage(p => Math.max(0, p - 1))}
+                          disabled={sigPage === 0}
+                          style={{
+                            padding: '2px 8px', fontSize: 11, borderRadius: 4, cursor: sigPage === 0 ? 'default' : 'pointer',
+                            border: '1px solid var(--border)', background: 'transparent',
+                            color: sigPage === 0 ? 'var(--border)' : 'var(--text2)',
+                          }}>‹</button>
+                        <span style={{ fontSize: 11, color: 'var(--text2)', fontFamily: 'var(--mono)', minWidth: 50, textAlign: 'center' }}>
+                          {sigPage + 1} / {totalPages}
+                        </span>
+                        <button
+                          onClick={() => setSigPage(p => Math.min(totalPages - 1, p + 1))}
+                          disabled={sigPage === totalPages - 1}
+                          style={{
+                            padding: '2px 8px', fontSize: 11, borderRadius: 4, cursor: sigPage === totalPages - 1 ? 'default' : 'pointer',
+                            border: '1px solid var(--border)', background: 'transparent',
+                            color: sigPage === totalPages - 1 ? 'var(--border)' : 'var(--text2)',
+                          }}>›</button>
+                      </div>
+                    )}
+                  </div>
+                }
+              >
+                {signals.length === 0 ? (
+                  <Empty msg="신호 없음 — 오픈클로가 신호를 전송하면 여기에 표시됩니다" />
+                ) : (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                      <thead>
+                        <tr style={{ background: 'var(--bg3)' }}>
+                          <th style={thStyle('left')}>시간</th>
+                          <th style={thStyle('left')}>종목</th>
+                          <th style={thStyle()}>신호</th>
+                          <th style={thStyle()}>신뢰도</th>
+                          <th style={thStyle()}>목표가</th>
+                          <th style={thStyle('left')}>분석 근거</th>
+                          <th style={thStyle()}>상태</th>
                         </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </Section>
+                      </thead>
+                      <tbody>
+                        {pageSignals.map((s) => {
+                          const isBuy  = s.action === 'BUY';
+                          const isSell = s.action === 'SELL';
+                          const status = s.rejected ? '거부' : s.executed ? '체결' : '대기';
+                          const statusClr = s.rejected ? 'var(--red)' : s.executed ? 'var(--green)' : 'var(--text2)';
+                          return (
+                            <tr
+                              key={s.signal_id}
+                              onClick={() => setSelSignal(s)}
+                              style={{ borderTop: '1px solid var(--border)', cursor: 'pointer' }}
+                              onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.04)'}
+                              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                            >
+                              <td style={{ padding: '11px 16px', color: 'var(--text2)', fontFamily: 'var(--mono)', fontSize: 11, whiteSpace: 'nowrap' }}>
+                                {s.created_at ? s.created_at.slice(0, 16).replace('T', ' ') : '-'}
+                              </td>
+                              <td style={{ padding: '11px 16px', whiteSpace: 'nowrap' }}>
+                                <div style={{ fontWeight: 500 }}>{s.stock_name}</div>
+                                <div style={{ color: 'var(--text2)', fontFamily: 'var(--mono)', fontSize: 11 }}>{s.stock_code}</div>
+                              </td>
+                              <td style={{ padding: '11px 16px', textAlign: 'right' }}>
+                                <span style={{
+                                  padding: '2px 8px', borderRadius: 4, fontSize: 11,
+                                  fontFamily: 'var(--mono)', fontWeight: 700,
+                                  background: isBuy ? 'rgba(57,211,83,0.12)' : isSell ? 'rgba(248,81,73,0.12)' : 'rgba(255,255,255,0.06)',
+                                  color: isBuy ? 'var(--green)' : isSell ? 'var(--red)' : 'var(--text2)',
+                                }}>
+                                  {s.action}
+                                </span>
+                              </td>
+                              <td style={{ ...tdStyle(), color: s.confidence >= 0.8 ? 'var(--green)' : s.confidence >= 0.6 ? 'var(--text)' : 'var(--red)' }}>
+                                {Math.round(s.confidence * 100)}%
+                              </td>
+                              <td style={{ ...tdStyle(), color: 'var(--text2)' }}>
+                                {s.target_price ? Number(s.target_price).toLocaleString() + '원' : '-'}
+                              </td>
+                              <td style={{ padding: '11px 16px', color: 'var(--text2)', fontSize: 11, maxWidth: 220, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {s.reject_reason || s.reason || '-'}
+                              </td>
+                              <td style={{ ...tdStyle(), color: statusClr, fontWeight: 700 }}>{status}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                    {totalPages > 1 && (
+                      <div style={{
+                        padding: '10px 16px', borderTop: '1px solid var(--border)',
+                        display: 'flex', justifyContent: 'center', gap: 4,
+                      }}>
+                        {Array.from({ length: totalPages }, (_, i) => (
+                          <button
+                            key={i}
+                            onClick={() => setSigPage(i)}
+                            style={{
+                              width: 28, height: 28, borderRadius: 4, fontSize: 11, cursor: 'pointer',
+                              border: '1px solid var(--border)', fontFamily: 'var(--mono)',
+                              background: i === sigPage ? 'var(--green)' : 'transparent',
+                              color: i === sigPage ? '#000' : 'var(--text2)',
+                              fontWeight: i === sigPage ? 700 : 400,
+                            }}
+                          >{i + 1}</button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </Section>
+            );
+          })()}
 
           {/* ── 누적 손익 차트 ── */}
           <Section

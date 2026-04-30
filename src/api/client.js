@@ -35,7 +35,10 @@ export const getTrades     = (limit = 100) => api.get(`/dashboard/trades?limit=$
 export const getPnlChart   = (days = 30) => api.get(`/dashboard/pnl-chart?days=${days}`);
 export const getSignals    = (limit = 50) => api.get(`/signal/list?limit=${limit}`);
 
+export const getPortfolio  = (days = 30) => api.get(`/dashboard/portfolio?days=${days}`);
+
 // 키움 실계좌 (백엔드가 Kiwoom API 호출 → 키 절대 노출 없음)
 export const getAccount      = () => api.get('/kiwoom/account');
 export const getFilledOrders = () => api.get('/kiwoom/orders/filled');
 export const syncOrders      = () => api.post('/kiwoom/sync-orders');
+export const recalcProfit    = () => api.post('/kiwoom/recalc-profit');

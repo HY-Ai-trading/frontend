@@ -3,9 +3,10 @@ import { NavLink } from 'react-router-dom';
 import api from '../api/client';
 
 const NAV = [
-  { to: '/',        label: '대시보드', icon: '▣' },
-  { to: '/signals', label: 'AI 신호',  icon: '◈' },
-  { to: '/trades',  label: '체결내역', icon: '◉' },
+  { to: '/',           label: '대시보드',   icon: '▣' },
+  { to: '/signals',    label: 'AI 신호',    icon: '◈' },
+  { to: '/trades',     label: '체결내역',   icon: '◉' },
+  { to: '/portfolio',  label: '포트폴리오', icon: '◎' },
 ];
 
 const s = {

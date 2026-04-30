@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import DashboardPage from './pages/DashboardPage';
-import SignalsPage   from './pages/SignalsPage';
-import TradesPage    from './pages/TradesPage';
-import LoginPage     from './pages/LoginPage';
+import DashboardPage   from './pages/DashboardPage';
+import SignalsPage     from './pages/SignalsPage';
+import TradesPage      from './pages/TradesPage';
+import LoginPage       from './pages/LoginPage';
+import PortfolioPage   from './pages/PortfolioPage';
 import api, { getToken, clearToken } from './api/client';
 
 export default function App() {
@@ -39,10 +40,11 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/"         element={<DashboardPage />} />
-        <Route path="/signals"  element={<SignalsPage />} />
-        <Route path="/trades"   element={<TradesPage />} />
-        <Route path="*"         element={<Navigate to="/" replace />} />
+        <Route path="/"           element={<DashboardPage />} />
+        <Route path="/signals"    element={<SignalsPage />} />
+        <Route path="/trades"     element={<TradesPage />} />
+        <Route path="/portfolio"  element={<PortfolioPage />} />
+        <Route path="*"           element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
   );
