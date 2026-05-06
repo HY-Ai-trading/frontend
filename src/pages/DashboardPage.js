@@ -262,14 +262,17 @@ export default function DashboardPage() {
   // h.profit = Kiwoom이 계산한 순이익 (수수료·세금 차감 후)
   // RT 가격 변동분은 gross로 더함 (수수료는 이미 반영됨)
   const rtHoldings = (ac.holdings || []).map(h => {
-    const rtPrice  = rtPrices[h.stock_code];
-    const curPrice = rtPrice || h.current_price;
+    const rtPrice    = rtPrices[h.stock_code];
+    const curPrice   = rtPrice || h.current_price;
     const priceDelta = rtPrice ? (rtPrice - h.current_price) * h.quantity : 0;
-    const profit   = h.profit + priceDelta;
-    const evalAmt  = curPrice * h.quantity;
-    const cost     = h.avg_price * h.quantity;
-    const profitRt = cost > 0 ? profit / cost * 100 : 0;
-    return { ...h, curPrice, profit, evalAmt, profitRt, isRt: !!rtPrice };
+    const profit     = h.profit + priceDelta;
+    const evalAmt    = curPrice * h.quantity;
+    const cost       = h.avg_price * h.quantity;
+    const profitRt   = cost > 0 ? profit / cost * 100 : 0;
+    const prevClose  = h.prev_close || h.current_price;
+    // 전일대비 색상: 상승=빨강, 하락=파랑, 보합=기본
+    const dayClr = curPrice > prevClose ? 'var(--red)' : curPrice < prevClose ? '#58a6ff' : 'var(--text)';
+    return { ...h, curPrice, profit, evalAmt, profitRt, isRt: !!rtPrice, dayClr };
   });
 
   const rtTotalEval   = rtHoldings.reduce((s, h) => s + h.evalAmt, 0) || ac.total_eval;
@@ -355,7 +358,13 @@ export default function DashboardPage() {
                   </thead>
                   <tbody>
                     {rtHoldings.map((h) => {
-                      const { curPrice, profit, profitRt, evalAmt, isRt } = h;
+                      const curPrice  = h.curPrice;
+                      const profit    = h.profit;
+                      const profitRt  = h.profitRt;
+                      const evalAmt   = h.evalAmt;
+                      const isRt      = h.isRt;
+                      const prevClose = h.prev_close || h.current_price;
+                      const priceClr  = curPrice > prevClose ? 'var(--red)' : curPrice < prevClose ? '#58a6ff' : 'var(--text)';
                       return (
                         <tr key={h.stock_code} style={{ borderTop: '1px solid var(--border)' }}>
                           <td style={{ padding: '12px 16px' }}>
@@ -364,7 +373,7 @@ export default function DashboardPage() {
                           </td>
                           <td style={tdStyle()}>{Number(h.quantity).toLocaleString()}주</td>
                           <td style={tdStyle()}>{Number(h.avg_price).toLocaleString()}</td>
-                          <td style={tdStyle('right', { color: isRt ? 'var(--blue)' : 'var(--text)', fontWeight: isRt ? 700 : 400 })}>
+                          <td style={tdStyle('right', { color: priceClr, fontWeight: 700 })}>
                             {curPrice.toLocaleString()}
                             {isRt && <span style={{ fontSize: 9, marginLeft: 4, color: 'var(--green)' }}>●</span>}
                           </td>
