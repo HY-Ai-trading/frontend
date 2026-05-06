@@ -227,16 +227,28 @@ export default function DashboardPage() {
     ws.onmessage = (e) => {
       try {
         const msg = JSON.parse(e.data);
-        // 0A: 주식기세(현재가), 0B: 주식체결
-        if (msg.trnm !== '0A' && msg.trnm !== '0B') return;
 
+        // 실제 API: {trnm:'REAL', data:[{item, type, values:{...}}]}
+        if (msg.trnm === 'REAL' && Array.isArray(msg.data)) {
+          for (const d of msg.data) {
+            const code = (d.item || '').replace(/^A/, '');
+            if (!code) continue;
+            const v = d.values || {};
+            // 0A/0B: field '10' = 현재가, 0g: field '305' = ±현재가
+            const priceStr = v['10'] ?? v['305'] ?? '';
+            const price = parsePrice(priceStr);
+            if (price > 0) setRtPrices(prev => ({ ...prev, [code]: price }));
+          }
+          return;
+        }
+
+        // 모의 API: {trnm:'0A'|'0B', stk_cd, cur_prc, ...}
+        if (msg.trnm !== '0A' && msg.trnm !== '0B' && msg.trnm !== '0g') return;
         const d = msg.data || msg;
         const raw = d.stk_cd || d.stock_code || '';
         const code = raw.replace(/^A/, '');
-        const price = parsePrice(d.cur_prc ?? d.cntr_pric ?? d.close);
-        if (code && price > 0) {
-          setRtPrices(prev => ({ ...prev, [code]: price }));
-        }
+        const price = parsePrice(d.cur_prc ?? d.cntr_pric ?? d.close ?? d['305'] ?? d['10']);
+        if (code && price > 0) setRtPrices(prev => ({ ...prev, [code]: price }));
       } catch {}
     };
 
@@ -255,7 +267,8 @@ export default function DashboardPage() {
     const priceDelta = rtPrice ? (rtPrice - h.current_price) * h.quantity : 0;
     const profit   = h.profit + priceDelta;
     const evalAmt  = curPrice * h.quantity;
-    const profitRt = h.avg_price > 0 ? (curPrice - h.avg_price) / h.avg_price * 100 : 0;
+    const cost     = h.avg_price * h.quantity;
+    const profitRt = cost > 0 ? profit / cost * 100 : 0;
     return { ...h, curPrice, profit, evalAmt, profitRt, isRt: !!rtPrice };
   });
 

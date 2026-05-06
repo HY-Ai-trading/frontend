@@ -31,7 +31,8 @@ export default api;
 
 // 대시보드 DB 기반
 export const getSummary    = () => api.get('/dashboard/summary');
-export const getTrades     = (limit = 100) => api.get(`/dashboard/trades?limit=${limit}`);
+export const getTrades        = (limit = 100) => api.get(`/dashboard/trades?limit=${limit}`);
+export const getStockTrades   = (stock_code)  => api.get(`/dashboard/trades?stock_code=${stock_code}&limit=200`);
 export const getPnlChart   = (days = 30) => api.get(`/dashboard/pnl-chart?days=${days}`);
 export const getSignals    = (limit = 50) => api.get(`/signal/list?limit=${limit}`);
 

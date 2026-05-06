@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import Layout from '../components/Layout';
 import api from '../api/client';
+import { getStockTrades } from '../api/client';
 
 const COLORS = [
   '#39d353', '#58a6ff', '#f0883e', '#d2a8ff', '#ffa657',
@@ -37,11 +38,143 @@ const CustomTooltip = ({ active, payload }) => {
   );
 };
 
+/* ── 종목 거래내역 모달 ── */
+function StockTradeModal({ stock, onClose }) {
+  const [trades, setTrades] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    getStockTrades(stock.stock_code)
+      .then(r => setTrades((r.data || []).filter(t => t.stock_code === stock.stock_code)))
+      .finally(() => setLoading(false));
+  }, [stock.stock_code]);
+
+  useEffect(() => {
+    const fn = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', fn);
+    return () => window.removeEventListener('keydown', fn);
+  }, [onClose]);
+
+  const buys  = trades.filter(t => t.action === 'BUY');
+  const sells = trades.filter(t => t.action === 'SELL');
+  const totalBuyAmt  = buys.reduce((s, t) => s + (t.amount || 0), 0);
+  const totalSellAmt = sells.reduce((s, t) => s + (t.amount || 0), 0);
+  const totalPnl     = sells.reduce((s, t) => s + (t.profit || 0), 0);
+
+  return (
+    <div onClick={onClose} style={{
+      position: 'fixed', inset: 0, zIndex: 1000,
+      background: 'rgba(0,0,0,0.6)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: 'var(--bg2)', border: '1px solid var(--border)',
+        borderRadius: 12, width: '100%', maxWidth: 600, maxHeight: '88vh',
+        display: 'flex', flexDirection: 'column',
+      }}>
+        {/* 헤더 */}
+        <div style={{
+          padding: '16px 20px', borderBottom: '1px solid var(--border)',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0,
+        }}>
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 15 }}>{stock.stock_name}</div>
+            <div style={{ fontSize: 11, color: 'var(--text2)', fontFamily: 'var(--mono)', marginTop: 2 }}>
+              {stock.stock_code}
+            </div>
+          </div>
+          <button onClick={onClose} style={{
+            background: 'transparent', border: 'none',
+            color: 'var(--text2)', fontSize: 18, cursor: 'pointer',
+          }}>✕</button>
+        </div>
+
+        {/* 요약 카드 */}
+        <div style={{
+          display: 'flex', gap: 0, borderBottom: '1px solid var(--border)', flexShrink: 0,
+        }}>
+          {[
+            { label: '총 매수', value: won(totalBuyAmt), color: 'var(--text)' },
+            { label: '총 매도', value: won(totalSellAmt), color: 'var(--text)' },
+            { label: '실현손익', value: diff(totalPnl), color: clr(totalPnl) },
+            { label: '매수', value: `${buys.length}회`, color: 'var(--green)' },
+            { label: '매도', value: `${sells.length}회`, color: 'var(--red)' },
+          ].map(({ label, value, color }) => (
+            <div key={label} style={{
+              flex: 1, padding: '12px 16px', textAlign: 'center',
+              borderRight: '1px solid var(--border)',
+            }}>
+              <div style={{ fontSize: 10, color: 'var(--text2)', marginBottom: 4 }}>{label}</div>
+              <div style={{ fontSize: 13, fontFamily: 'var(--mono)', fontWeight: 700, color }}>{value}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* 거래 목록 */}
+        <div style={{ overflowY: 'auto', flex: 1 }}>
+          {loading ? (
+            <div style={{ padding: 40, textAlign: 'center', color: 'var(--text2)', fontSize: 13 }}>로딩 중...</div>
+          ) : trades.length === 0 ? (
+            <div style={{ padding: 40, textAlign: 'center', color: 'var(--text2)', fontSize: 13 }}>거래 내역 없음</div>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+              <thead style={{ position: 'sticky', top: 0, background: 'var(--bg3)', zIndex: 1 }}>
+                <tr>
+                  {[['시간','left'],['구분','left'],['수량','right'],['단가','right'],['금액','right'],['손익','right']].map(([h, align]) => (
+                    <th key={h} style={{
+                      padding: '9px 14px', textAlign: align,
+                      color: 'var(--text2)', fontWeight: 400, fontSize: 11,
+                      borderBottom: '1px solid var(--border)',
+                    }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {[...trades].reverse().map((t) => {
+                  const isBuy = t.action === 'BUY';
+                  return (
+                    <tr key={t.id} style={{ borderTop: '1px solid var(--border)' }}>
+                      <td style={{ padding: '10px 14px', color: 'var(--text2)', fontFamily: 'var(--mono)', fontSize: 11, whiteSpace: 'nowrap' }}>
+                        {new Date(t.created_at).toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                      </td>
+                      <td style={{ padding: '10px 14px' }}>
+                        <span style={{
+                          padding: '2px 8px', borderRadius: 4, fontSize: 11,
+                          fontFamily: 'var(--mono)', fontWeight: 700,
+                          background: isBuy ? 'rgba(57,211,83,0.12)' : 'rgba(248,81,73,0.12)',
+                          color: isBuy ? 'var(--green)' : 'var(--red)',
+                        }}>{isBuy ? '매수' : '매도'}</span>
+                      </td>
+                      <td style={{ padding: '10px 14px', textAlign: 'right', fontFamily: 'var(--mono)' }}>
+                        {(t.quantity || 0).toLocaleString()}주
+                      </td>
+                      <td style={{ padding: '10px 14px', textAlign: 'right', fontFamily: 'var(--mono)' }}>
+                        {(t.price || 0).toLocaleString()}원
+                      </td>
+                      <td style={{ padding: '10px 14px', textAlign: 'right', fontFamily: 'var(--mono)', color: 'var(--text2)' }}>
+                        {(t.amount || 0).toLocaleString()}원
+                      </td>
+                      <td style={{ padding: '10px 14px', textAlign: 'right', fontFamily: 'var(--mono)', fontWeight: 700, color: isBuy ? 'var(--text2)' : clr(t.profit || 0) }}>
+                        {isBuy ? '—' : diff(t.profit || 0)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function PortfolioPage() {
   const [data, setData]       = useState([]);
   const [days, setDays]       = useState(30);
   const [loading, setLoading] = useState(true);
   const [lastAt, setLastAt]   = useState('');
+  const [selected, setSelected] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -62,6 +195,7 @@ export default function PortfolioPage() {
 
   return (
     <Layout title="포트폴리오 비중">
+      {selected && <StockTradeModal stock={selected} onClose={() => setSelected(null)} />}
       <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', marginBottom: 14, gap: 10 }}>
         <span style={{ fontSize: 11, color: 'var(--text2)', fontFamily: 'var(--mono)' }}>
           {lastAt ? `업데이트: ${lastAt}` : ''}
@@ -218,7 +352,13 @@ export default function PortfolioPage() {
                 </thead>
                 <tbody>
                   {data.map((d, i) => (
-                    <tr key={d.stock_code} style={{ borderTop: '1px solid var(--border)' }}>
+                    <tr
+                      key={d.stock_code}
+                      onClick={() => setSelected(d)}
+                      style={{ borderTop: '1px solid var(--border)', cursor: 'pointer' }}
+                      onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.04)'}
+                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                    >
                       <td style={{ padding: '12px 16px', fontFamily: 'var(--mono)', color: 'var(--text2)', fontSize: 11 }}>#{i + 1}</td>
                       <td style={{ padding: '12px 16px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
