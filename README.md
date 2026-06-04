@@ -46,9 +46,14 @@ cp .env.example .env
 ## 실행
 
 ```bash
-npm install
-npm start        # 개발 서버 (기본 3000 포트)
-npm run build    # 프로덕션 빌드
+# 최초 설치 + 빌드
+chmod +x setup_frontend.sh && ./setup_frontend.sh
+
+# 빌드 후 프로덕션 서빙 (port 3000, Cloudflare 캐시 우회)
+chmod +x serve-prod.sh && ./serve-prod.sh
+
+# 코드 수정 후 재빌드·서빙
+./serve-prod.sh
 ```
 
 ## 인증
