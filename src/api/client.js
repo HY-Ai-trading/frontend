@@ -37,6 +37,8 @@ export const getPnlChart   = (days = 30) => api.get(`/dashboard/pnl-chart?days=$
 export const getSignals    = (limit = 50) => api.get(`/signal/list?limit=${limit}`);
 
 export const getPortfolio  = (days = 30) => api.get(`/dashboard/portfolio?days=${days}`);
+export const getPrincipal  = () => api.get('/dashboard/principal');
+export const setPrincipal  = (v) => api.post('/dashboard/principal', { principal: v });
 
 // 키움 실계좌 (백엔드가 Kiwoom API 호출 → 키 절대 노출 없음)
 export const getAccount      = () => api.get('/kiwoom/account');

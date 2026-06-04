@@ -1,10 +1,10 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
-  AreaChart, Area, XAxis, YAxis, Tooltip,
+  ComposedChart, Area, Bar, Cell, XAxis, YAxis, Tooltip,
   ResponsiveContainer, CartesianGrid,
 } from 'recharts';
 import Layout from '../components/Layout';
-import { getAccount, getFilledOrders, getPnlChart, getSignals } from '../api/client';
+import { getAccount, getFilledOrders, getPnlChart, getSignals, getSummary, getPrincipal, setPrincipal } from '../api/client';
 
 /* ── 공통 유틸 ── */
 const won   = (n) => Number(n || 0).toLocaleString('ko-KR') + '원';
@@ -46,8 +46,8 @@ const ChartTip = ({ active, payload, label }) => {
       borderRadius: 8, padding: '10px 14px', fontSize: 12,
     }}>
       <div style={{ color: 'var(--text2)', marginBottom: 4 }}>{label}</div>
-      <div style={{ color: 'var(--green)', fontFamily: 'var(--mono)' }}>누적 {Number(d?.cumulative).toLocaleString()}원</div>
-      <div style={{ color: 'var(--text2)', fontFamily: 'var(--mono)' }}>일별 {diff(d?.daily_pnl)}</div>
+      <div style={{ color: (d?.cumulative ?? 0) >= 0 ? 'var(--green)' : '#58a6ff', fontFamily: 'var(--mono)' }}>누적 {diff(d?.cumulative)}</div>
+      <div style={{ color: (d?.daily_pnl ?? 0) >= 0 ? 'var(--green)' : '#58a6ff', fontFamily: 'var(--mono)' }}>일별 {diff(d?.daily_pnl)}</div>
       <div style={{ color: 'var(--text2)' }}>체결 {d?.trade_count}건</div>
     </div>
   );
@@ -177,17 +177,24 @@ export default function DashboardPage() {
   const [wsStatus, setWsStatus]     = useState('');
   const [selSignal, setSelSignal]   = useState(null);
   const [sigPage, setSigPage]       = useState(0);
+  const [totalPnl, setTotalPnl]         = useState(null);
+  const [totalLoading, setTotalLoading] = useState(false);
+  const [principal, setPrincipalState]  = useState(null);
+  const [editPrincipal, setEditPrincipal] = useState(false);
+  const [principalInput, setPrincipalInput] = useState('');
   const wsRef                       = useRef(null);
 
   const load = useCallback(async () => {
     setErr('');
     try {
       // DB 조회와 계좌 조회 병렬
-      const [acct, pnl, sigs] = await Promise.allSettled([
+      const [acct, pnl, sigs, princ] = await Promise.allSettled([
         getAccount(),
         getPnlChart(days),
         getSignals(),
+        getPrincipal(),
       ]);
+      if (princ.status === 'fulfilled') setPrincipalState(princ.value.data.principal ?? 0);
       if (acct.status === 'fulfilled') setAccount(acct.value.data);
       else setErr('계좌 조회 실패');
       if (pnl.status === 'fulfilled') setChart(pnl.value.data || []);
@@ -324,6 +331,102 @@ export default function DashboardPage() {
               sub="DB 체결 기준"
               color={clr(monthlyPnl)}
             />
+            <div style={{
+              background: 'var(--bg2)', border: '1px solid var(--border)',
+              borderRadius: 10, padding: '20px 24px', flex: 1, minWidth: 150,
+            }}>
+              <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 8, letterSpacing: 1 }}>실제 손익</div>
+              {principal === null ? (
+                <div style={{ fontSize: 13, color: 'var(--text2)' }}>로딩 중...</div>
+              ) : editPrincipal ? (
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <input
+                    type="number"
+                    value={principalInput}
+                    onChange={e => setPrincipalInput(e.target.value)}
+                    placeholder="원금 입력"
+                    autoFocus
+                    style={{
+                      width: 110, padding: '5px 8px', borderRadius: 5, fontSize: 13,
+                      border: '1px solid var(--border)', background: 'var(--bg3)',
+                      color: 'var(--text)', fontFamily: 'var(--mono)',
+                    }}
+                  />
+                  <button onClick={async () => {
+                    const v = parseInt(principalInput) || 0;
+                    await setPrincipal(v);
+                    setPrincipalState(v);
+                    setEditPrincipal(false);
+                  }} style={{ padding: '5px 10px', borderRadius: 5, fontSize: 12, cursor: 'pointer',
+                    background: 'var(--green)', color: '#000', border: 'none', fontWeight: 700 }}>저장</button>
+                  <button onClick={() => setEditPrincipal(false)} style={{ padding: '5px 8px', borderRadius: 5,
+                    fontSize: 12, cursor: 'pointer', background: 'transparent',
+                    border: '1px solid var(--border)', color: 'var(--text2)' }}>✕</button>
+                </div>
+              ) : (
+                <>
+                  {principal === 0 ? (
+                    <button onClick={() => { setEditPrincipal(true); setPrincipalInput(''); }}
+                      style={{ padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700,
+                        cursor: 'pointer', border: '1px solid var(--border)',
+                        background: 'transparent', color: 'var(--text2)', marginTop: 2 }}>
+                      원금 설정
+                    </button>
+                  ) : (
+                    <>
+                      <div style={{ fontSize: 20, fontFamily: 'var(--mono)', fontWeight: 700,
+                        color: clr(ac.total_asset - principal) }}>
+                        {diff(ac.total_asset - principal)}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--text2)', marginTop: 6, display: 'flex', gap: 8 }}>
+                        <span>원금 {won(principal)}</span>
+                        <span style={{ cursor: 'pointer', textDecoration: 'underline' }}
+                          onClick={() => { setEditPrincipal(true); setPrincipalInput(String(principal)); }}>수정</span>
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+            <div style={{
+              background: 'var(--bg2)', border: '1px solid var(--border)',
+              borderRadius: 10, padding: '20px 24px', flex: 1, minWidth: 150,
+            }}>
+              <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 8, letterSpacing: 1 }}>전체 실현손익</div>
+              {totalPnl === null ? (
+                <button
+                  onClick={async () => {
+                    setTotalLoading(true);
+                    try {
+                      const res = await getSummary();
+                      setTotalPnl(res.data.total_pnl ?? 0);
+                    } catch { setTotalPnl(0); }
+                    finally { setTotalLoading(false); }
+                  }}
+                  disabled={totalLoading}
+                  style={{
+                    padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700,
+                    cursor: totalLoading ? 'default' : 'pointer',
+                    border: '1px solid var(--border)', background: 'transparent',
+                    color: 'var(--text2)', marginTop: 2,
+                  }}
+                >
+                  {totalLoading ? '조회 중...' : '조회'}
+                </button>
+              ) : (
+                <>
+                  <div style={{ fontSize: 20, fontFamily: 'var(--mono)', fontWeight: 700, color: clr(totalPnl) }}>
+                    {diff(totalPnl)}
+                  </div>
+                  <div
+                    onClick={() => setTotalPnl(null)}
+                    style={{ fontSize: 11, color: 'var(--text2)', marginTop: 6, cursor: 'pointer' }}
+                  >
+                    DB 전체 기준 ↺
+                  </div>
+                </>
+              )}
+            </div>
           </div>
 
           {/* ── 보유종목 ── */}
@@ -590,33 +693,44 @@ export default function DashboardPage() {
                 </div>
               ) : (
                 <ResponsiveContainer width="100%" height={260}>
-                  <AreaChart data={chart} margin={{ top: 5, right: 10, left: 10, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="pnlGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#39d353" stopOpacity={0.2} />
-                        <stop offset="95%" stopColor="#39d353" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
-                    <XAxis
-                      dataKey="date" tickFormatter={fmtD}
-                      tick={{ fill: 'var(--text2)', fontSize: 11, fontFamily: 'var(--mono)' }}
-                      axisLine={false} tickLine={false}
-                    />
-                    <YAxis
-                      tick={{ fill: 'var(--text2)', fontSize: 11, fontFamily: 'var(--mono)' }}
-                      axisLine={false} tickLine={false}
-                      tickFormatter={v => Math.abs(v) >= 10000 ? (v / 10000).toFixed(1) + '만' : v.toLocaleString() + '원'}
-                    />
-                    <Tooltip content={<ChartTip />} />
-                    <Area
-                      type="monotone" dataKey="cumulative"
-                      stroke="var(--green)" strokeWidth={2}
-                      fill="url(#pnlGrad)"
-                      dot={chart.length === 1 ? { r: 5, fill: 'var(--green)', strokeWidth: 0 } : false}
-                      activeDot={{ r: 4, fill: 'var(--green)' }}
-                    />
-                  </AreaChart>
+                  {(() => {
+                    const lastCum = chart[chart.length - 1]?.cumulative ?? 0;
+                    const cumClr  = lastCum >= 0 ? '#39d353' : '#58a6ff';
+                    return (
+                      <ComposedChart data={chart} margin={{ top: 5, right: 10, left: 10, bottom: 0 }}>
+                        <defs>
+                          <linearGradient id="pnlGrad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%"  stopColor={cumClr} stopOpacity={0.2} />
+                            <stop offset="95%" stopColor={cumClr} stopOpacity={0} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
+                        <XAxis
+                          dataKey="date" tickFormatter={fmtD}
+                          tick={{ fill: 'var(--text2)', fontSize: 11, fontFamily: 'var(--mono)' }}
+                          axisLine={false} tickLine={false}
+                        />
+                        <YAxis
+                          tick={{ fill: 'var(--text2)', fontSize: 11, fontFamily: 'var(--mono)' }}
+                          axisLine={false} tickLine={false}
+                          tickFormatter={v => Math.abs(v) >= 10000 ? (v / 10000).toFixed(1) + '만' : v.toLocaleString() + '원'}
+                        />
+                        <Tooltip content={<ChartTip />} />
+                        <Bar dataKey="daily_pnl" radius={[3, 3, 0, 0]} maxBarSize={20}>
+                          {chart.map((d, i) => (
+                            <Cell key={i} fill={d.daily_pnl >= 0 ? '#39d353' : '#58a6ff'} fillOpacity={0.7} />
+                          ))}
+                        </Bar>
+                        <Area
+                          type="monotone" dataKey="cumulative"
+                          stroke={cumClr} strokeWidth={2}
+                          fill="url(#pnlGrad)"
+                          dot={chart.length === 1 ? { r: 5, fill: cumClr, strokeWidth: 0 } : false}
+                          activeDot={{ r: 4, fill: cumClr }}
+                        />
+                      </ComposedChart>
+                    );
+                  })()}
                 </ResponsiveContainer>
               )}
             </div>
