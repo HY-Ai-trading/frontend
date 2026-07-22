@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import Layout from '../components/Layout';
 import Pagination, { PAGE_SIZE } from '../components/Pagination';
-import { getSignals } from '../api/client';
+import { getSignals, getMonthlySignals } from '../api/client';
 
 const ACTION_COLOR = { BUY: 'var(--green)', SELL: 'var(--red)', HOLD: 'var(--yellow)' };
 
@@ -124,12 +124,29 @@ export default function SignalsPage() {
   const [loading, setLoading] = useState(true);
   const [page, setPage]       = useState(1);
   const [selected, setSelected] = useState(null);
+  const [mode, setMode]       = useState('all'); // 'all' | 'month'
+  const [selectedMonth, setSelectedMonth] = useState(() => new Date().toISOString().slice(0, 7));
+
+  const fetchSignals = useCallback(() => {
+    return mode === 'month' ? getMonthlySignals(selectedMonth, 1000) : getSignals(200);
+  }, [mode, selectedMonth]);
 
   useEffect(() => {
-    getSignals(200).then(r => { setSignals(r.data); setLoading(false); }).catch(() => setLoading(false));
-    const t = setInterval(() => getSignals(200).then(r => setSignals(r.data)).catch(() => {}), 10000);
+    setLoading(true);
+    fetchSignals().then(r => { setSignals(r.data); setLoading(false); }).catch(() => setLoading(false));
+    const t = setInterval(() => fetchSignals().then(r => setSignals(r.data)).catch(() => {}), 10000);
     return () => clearInterval(t);
-  }, []);
+  }, [fetchSignals]);
+
+  useEffect(() => { setPage(1); }, [mode, selectedMonth]);
+
+  const [selYear, selMon] = selectedMonth.split('-').map(Number);
+  const selectedMonthLabel = `${selYear}년 ${selMon}월`;
+  const isCurrentMonth = selectedMonth === new Date().toISOString().slice(0, 7);
+  const shiftMonth = (delta) => {
+    const d = new Date(selYear, selMon - 1 + delta, 1);
+    setSelectedMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  };
 
   const paged = signals.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
@@ -146,9 +163,35 @@ export default function SignalsPage() {
             <span style={{ fontSize: 13, fontWeight: 500 }}>오픈클로 신호 목록</span>
             <span style={{ fontSize: 11, color: 'var(--text2)', fontFamily: 'var(--mono)' }}>{signals.length}건</span>
           </div>
-          <span style={{ fontSize: 11, color: 'var(--text2)', fontFamily: 'var(--mono)' }}>
-            행 클릭 → 상세 · 10초마다 자동 갱신
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {mode === 'month' && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <button onClick={() => shiftMonth(-1)} style={{
+                  width: 22, height: 22, borderRadius: 4, fontSize: 12, cursor: 'pointer',
+                  border: '1px solid var(--border)', background: 'transparent', color: 'var(--text2)', lineHeight: 1,
+                }}>‹</button>
+                <span style={{ fontSize: 12, fontFamily: 'var(--mono)', fontWeight: 700, minWidth: 76, textAlign: 'center' }}>
+                  {selectedMonthLabel}
+                </span>
+                <button onClick={() => shiftMonth(1)} disabled={isCurrentMonth} style={{
+                  width: 22, height: 22, borderRadius: 4, fontSize: 12,
+                  cursor: isCurrentMonth ? 'default' : 'pointer',
+                  border: '1px solid var(--border)', background: 'transparent',
+                  color: isCurrentMonth ? 'var(--border)' : 'var(--text2)', lineHeight: 1,
+                }}>›</button>
+              </div>
+            )}
+            <button onClick={() => setMode(mode === 'month' ? 'all' : 'month')} style={{
+              padding: '5px 14px', borderRadius: 6, fontSize: 12, cursor: 'pointer',
+              fontFamily: 'var(--mono)', fontWeight: mode === 'month' ? 700 : 400,
+              border: mode === 'month' ? '1.5px solid var(--green)' : '1.5px solid var(--border)',
+              background: mode === 'month' ? 'rgba(57,211,83,0.12)' : 'transparent',
+              color: mode === 'month' ? 'var(--green)' : 'var(--text2)', transition: 'all .12s',
+            }}>월별</button>
+            <span style={{ fontSize: 11, color: 'var(--text2)', fontFamily: 'var(--mono)' }}>
+              행 클릭 → 상세 · 10초마다 자동 갱신
+            </span>
+          </div>
         </div>
 
         {loading ? (

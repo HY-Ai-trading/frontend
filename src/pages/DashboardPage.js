@@ -1,10 +1,10 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
-  ComposedChart, Area, Bar, Cell, XAxis, YAxis, Tooltip,
+  ComposedChart, Area, Bar, Line, Cell, XAxis, YAxis, Tooltip,
   ResponsiveContainer, CartesianGrid,
 } from 'recharts';
 import Layout from '../components/Layout';
-import { getAccount, getFilledOrders, getPnlChart, getSignals, getSummary, getPrincipal, setPrincipal } from '../api/client';
+import { getAccount, getFilledOrders, getPnlChart, getSignals, getSummary, getPrincipal, setPrincipal, getMonthlyPnl, getPnlByMonth, getFees, sellHolding, getLockedStocks, lockStock, unlockStock } from '../api/client';
 
 /* ── 공통 유틸 ── */
 const won   = (n) => Number(n || 0).toLocaleString('ko-KR') + '원';
@@ -37,7 +37,7 @@ const Card = ({ label, value, sub, color = 'var(--text)' }) => (
 );
 
 /* ── 차트 툴팁 ── */
-const ChartTip = ({ active, payload, label }) => {
+const ChartTip = ({ active, payload, label, cumLabel = '누적' }) => {
   if (!active || !payload?.length) return null;
   const d = payload[0]?.payload;
   return (
@@ -46,8 +46,27 @@ const ChartTip = ({ active, payload, label }) => {
       borderRadius: 8, padding: '10px 14px', fontSize: 12,
     }}>
       <div style={{ color: 'var(--text2)', marginBottom: 4 }}>{label}</div>
-      <div style={{ color: (d?.cumulative ?? 0) >= 0 ? 'var(--green)' : '#58a6ff', fontFamily: 'var(--mono)' }}>누적 {diff(d?.cumulative)}</div>
+      <div style={{ color: (d?.cumulative ?? 0) >= 0 ? 'var(--green)' : '#58a6ff', fontFamily: 'var(--mono)' }}>{cumLabel} {diff(d?.cumulative)}</div>
       <div style={{ color: (d?.daily_pnl ?? 0) >= 0 ? 'var(--green)' : '#58a6ff', fontFamily: 'var(--mono)' }}>일별 {diff(d?.daily_pnl)}</div>
+      <div style={{ color: 'var(--text2)' }}>체결 {d?.trade_count}건</div>
+    </div>
+  );
+};
+
+/* ── 월별 손익 차트 툴팁 ── */
+const MonthlyPnlTip = ({ active, payload, label }) => {
+  if (!active || !payload?.length) return null;
+  const d = payload[0]?.payload;
+  return (
+    <div style={{
+      background: 'var(--bg3)', border: '1px solid var(--border)',
+      borderRadius: 8, padding: '10px 14px', fontSize: 12,
+    }}>
+      <div style={{ color: 'var(--text2)', marginBottom: 4 }}>{label}</div>
+      <div style={{ color: (d?.pnl ?? 0) >= 0 ? 'var(--green)' : '#58a6ff', fontFamily: 'var(--mono)' }}>{diff(d?.pnl)}</div>
+      {d?.pct != null && (
+        <div style={{ color: d.pct >= 0 ? 'var(--green)' : '#58a6ff', fontFamily: 'var(--mono)' }}>월초 자산 대비 {pct(d.pct)}</div>
+      )}
       <div style={{ color: 'var(--text2)' }}>체결 {d?.trade_count}건</div>
     </div>
   );
@@ -168,8 +187,11 @@ export default function DashboardPage() {
   const [account, setAccount]       = useState(null);
   const [filled, setFilled]         = useState([]);
   const [signals, setSignals]       = useState([]);
-  const [chart, setChart]           = useState([]);
+  const [daysChart, setDaysChart]   = useState([]);
+  const [monthChart, setMonthChart] = useState([]);
   const [days, setDays]             = useState(30);
+  const [chartMode, setChartMode]   = useState('days'); // 'days' | 'month'
+  const [selectedMonth, setSelectedMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [loading, setLoading]       = useState(true);
   const [lastAt, setLastAt]         = useState('');
   const [err, setErr]               = useState('');
@@ -179,6 +201,16 @@ export default function DashboardPage() {
   const [sigPage, setSigPage]       = useState(0);
   const [totalPnl, setTotalPnl]         = useState(null);
   const [totalLoading, setTotalLoading] = useState(false);
+  const [monthlyPnlData, setMonthlyPnlData] = useState(0);
+  const [monthlyPnlList, setMonthlyPnlList] = useState([]);
+  const [monthlyFee, setMonthlyFee]     = useState(null);
+  const [totalFee, setTotalFee]         = useState(null);
+  const [sellRow, setSellRow]           = useState(null);
+  const [sellQty, setSellQty]           = useState('');
+  const [sellLoading, setSellLoading]   = useState(false);
+  const [sellMsg, setSellMsg]           = useState('');
+  const [lockedStocks, setLockedStocks] = useState([]);
+  const [lockLoading, setLockLoading]   = useState(null);
   const [principal, setPrincipalState]  = useState(null);
   const [editPrincipal, setEditPrincipal] = useState(false);
   const [principalInput, setPrincipalInput] = useState('');
@@ -188,16 +220,30 @@ export default function DashboardPage() {
     setErr('');
     try {
       // DB 조회와 계좌 조회 병렬
-      const [acct, pnl, sigs, princ] = await Promise.allSettled([
+      const [acct, pnl, sigs, princ, mPnl, mFee, tFee, byMonth, locked] = await Promise.allSettled([
         getAccount(),
         getPnlChart(days),
         getSignals(),
         getPrincipal(),
+        getMonthlyPnl(selectedMonth),
+        getFees(selectedMonth),
+        getFees(),
+        getPnlByMonth(),
+        getLockedStocks(),
       ]);
       if (princ.status === 'fulfilled') setPrincipalState(princ.value.data.principal ?? 0);
+      if (mPnl.status === 'fulfilled') {
+        const rows = mPnl.value.data || [];
+        setMonthlyPnlData(rows.reduce((s, d) => s + (d.daily_pnl || 0), 0));
+        setMonthChart(rows);
+      }
+      if (byMonth.status === 'fulfilled') setMonthlyPnlList(byMonth.value.data || []);
+      if (locked.status === 'fulfilled') setLockedStocks(locked.value.data || []);
+      if (mFee.status === 'fulfilled') setMonthlyFee(mFee.value.data);
+      if (tFee.status === 'fulfilled') setTotalFee(tFee.value.data);
       if (acct.status === 'fulfilled') setAccount(acct.value.data);
       else setErr('계좌 조회 실패');
-      if (pnl.status === 'fulfilled') setChart(pnl.value.data || []);
+      if (pnl.status === 'fulfilled') setDaysChart(pnl.value.data || []);
       if (sigs.status === 'fulfilled') { setSignals(sigs.value.data || []); setSigPage(0); }
 
       // 체결내역은 rate limit 방지를 위해 150ms 후 별도 호출
@@ -208,13 +254,51 @@ export default function DashboardPage() {
       setLoading(false);
       setLastAt(new Date().toLocaleTimeString('ko-KR'));
     }
-  }, [days]);
+  }, [days, selectedMonth]);
 
   useEffect(() => {
     load();
     const t = setInterval(load, 60000);
     return () => clearInterval(t);
   }, [load]);
+
+  const handleSell = async (stock_code, stock_name) => {
+    const qty = parseInt(sellQty, 10);
+    if (!qty || qty <= 0) { setSellMsg('수량을 확인하세요'); return; }
+    setSellLoading(true);
+    setSellMsg('');
+    try {
+      const res = await sellHolding(stock_code, stock_name, qty);
+      if (res.data?.success) {
+        setSellMsg(`✅ ${res.data.message}`);
+        setSellRow(null);
+        load();
+      } else {
+        setSellMsg(`❌ ${res.data?.message || '주문 실패'}`);
+      }
+    } catch (e) {
+      setSellMsg(`❌ ${e.response?.data?.detail || e.message}`);
+    } finally {
+      setSellLoading(false);
+    }
+  };
+
+  const toggleLock = async (stock_code) => {
+    setLockLoading(stock_code);
+    try {
+      if (lockedStocks.includes(stock_code)) {
+        await unlockStock(stock_code);
+        setLockedStocks(prev => prev.filter(c => c !== stock_code));
+      } else {
+        await lockStock(stock_code);
+        setLockedStocks(prev => [...prev, stock_code]);
+      }
+    } catch (e) {
+      setSellMsg(`❌ ${e.response?.data?.detail || e.message}`);
+    } finally {
+      setLockLoading(null);
+    }
+  };
 
   /* ── 실시간 WebSocket ── */
   useEffect(() => {
@@ -262,7 +346,13 @@ export default function DashboardPage() {
     return () => ws.close();
   }, [account?.holdings]);
 
-  const monthlyPnl = chart.reduce((s, d) => s + (d.daily_pnl || 0), 0);
+  const [selYear, selMon] = selectedMonth.split('-').map(Number);
+  const selectedMonthLabel = `${selYear}년 ${selMon}월`;
+  const isCurrentMonth = selectedMonth === new Date().toISOString().slice(0, 7);
+  const shiftMonth = (delta) => {
+    const d = new Date(selYear, selMon - 1 + delta, 1);
+    setSelectedMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  };
   const ac = account || {};
 
   // 실시간 가격으로 카드 수치 보정 (API 스냅샷과 통일)
@@ -282,6 +372,7 @@ export default function DashboardPage() {
     return { ...h, curPrice, profit, evalAmt, profitRt, isRt: !!rtPrice, dayClr };
   });
 
+  const displayChart  = chartMode === 'month' ? monthChart : daysChart;
   const rtTotalEval   = rtHoldings.reduce((s, h) => s + h.evalAmt, 0) || ac.total_eval;
   const rtTotalProfit = rtHoldings.reduce((s, h) => s + h.profit,  0) || ac.total_profit;
   const rtProfitRate  = ac.total_cost > 0 ? rtTotalProfit / ac.total_cost * 100 : ac.profit_rate;
@@ -325,11 +416,35 @@ export default function DashboardPage() {
               sub={pct(rtProfitRate)}
               color={clr(rtTotalProfit)}
             />
+            <div style={{
+              background: 'var(--bg2)', border: '1px solid var(--border)',
+              borderRadius: 10, padding: '20px 24px', flex: 1, minWidth: 150,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <span style={{ fontSize: 11, color: 'var(--text2)', letterSpacing: 1 }}>{selectedMonthLabel} 실현손익</span>
+                <div style={{ display: 'flex', gap: 2 }}>
+                  <button onClick={() => shiftMonth(-1)} style={{
+                    width: 20, height: 20, borderRadius: 4, fontSize: 11, cursor: 'pointer',
+                    border: '1px solid var(--border)', background: 'transparent', color: 'var(--text2)', lineHeight: 1,
+                  }}>‹</button>
+                  <button onClick={() => shiftMonth(1)} disabled={isCurrentMonth} style={{
+                    width: 20, height: 20, borderRadius: 4, fontSize: 11,
+                    cursor: isCurrentMonth ? 'default' : 'pointer',
+                    border: '1px solid var(--border)', background: 'transparent',
+                    color: isCurrentMonth ? 'var(--border)' : 'var(--text2)', lineHeight: 1,
+                  }}>›</button>
+                </div>
+              </div>
+              <div style={{ fontSize: 20, fontFamily: 'var(--mono)', fontWeight: 700, color: clr(monthlyPnlData) }}>
+                {diff(monthlyPnlData)}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text2)', marginTop: 6 }}>DB 체결 기준</div>
+            </div>
             <Card
-              label="월 실현손익 (30일)"
-              value={diff(monthlyPnl)}
-              sub="DB 체결 기준"
-              color={clr(monthlyPnl)}
+              label={`${selectedMonthLabel} 수수료`}
+              value={monthlyFee ? won(monthlyFee.total_fee) : '조회 중...'}
+              sub={monthlyFee ? `매수 ${won(monthlyFee.buy_fee)} · 매도 ${won(monthlyFee.sell_fee)}` : ''}
+              color="var(--text2)"
             />
             <div style={{
               background: 'var(--bg2)', border: '1px solid var(--border)',
@@ -378,10 +493,11 @@ export default function DashboardPage() {
                         color: clr(ac.total_asset - principal) }}>
                         {diff(ac.total_asset - principal)}
                       </div>
-                      <div style={{ fontSize: 11, color: 'var(--text2)', marginTop: 6, display: 'flex', gap: 8 }}>
+                      <div style={{ fontSize: 11, color: 'var(--text2)', marginTop: 6, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                         <span>원금 {won(principal)}</span>
                         <span style={{ cursor: 'pointer', textDecoration: 'underline' }}
                           onClick={() => { setEditPrincipal(true); setPrincipalInput(String(principal)); }}>수정</span>
+                        {totalFee && <span>· 누적 수수료 {won(totalFee.total_fee)}</span>}
                       </div>
                     </>
                   )}
@@ -457,6 +573,8 @@ export default function DashboardPage() {
                       <th style={thStyle()}>평가금액</th>
                       <th style={thStyle()}>손익</th>
                       <th style={thStyle()}>수익률</th>
+                      <th style={thStyle()}>잠금</th>
+                      <th style={thStyle()}>매도</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -468,6 +586,7 @@ export default function DashboardPage() {
                       const isRt      = h.isRt;
                       const prevClose = h.prev_close || h.current_price;
                       const priceClr  = curPrice > prevClose ? 'var(--red)' : curPrice < prevClose ? '#58a6ff' : 'var(--text)';
+                      const isLocked  = lockedStocks.includes(h.stock_code);
                       return (
                         <tr key={h.stock_code} style={{ borderTop: '1px solid var(--border)' }}>
                           <td style={{ padding: '12px 16px' }}>
@@ -483,11 +602,74 @@ export default function DashboardPage() {
                           <td style={tdStyle()}>{evalAmt.toLocaleString()}</td>
                           <td style={tdStyle('right', { color: clr(profit), fontWeight: 700 })}>{diff(profit)}</td>
                           <td style={tdStyle('right', { color: clr(profitRt) })}>{pct(profitRt)}</td>
+                          <td style={tdStyle('right')}>
+                            <button
+                              onClick={() => toggleLock(h.stock_code)}
+                              disabled={lockLoading === h.stock_code}
+                              style={{
+                                padding: '4px 10px', borderRadius: 5, fontSize: 11, fontWeight: 700,
+                                cursor: lockLoading === h.stock_code ? 'default' : 'pointer',
+                                border: isLocked ? '1px solid var(--yellow)' : '1px solid var(--border)',
+                                background: isLocked ? 'rgba(255,196,0,0.12)' : 'transparent',
+                                color: isLocked ? 'var(--yellow)' : 'var(--text2)',
+                              }}
+                            >{lockLoading === h.stock_code ? '...' : isLocked ? '🔒 잠금됨' : '잠금'}</button>
+                          </td>
+                          <td style={tdStyle('right')}>
+                            {isLocked ? (
+                              <span style={{ fontSize: 11, color: 'var(--text2)' }}>매도 불가</span>
+                            ) : sellRow === h.stock_code ? (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'flex-end' }}>
+                                <input
+                                  type="number"
+                                  value={sellQty}
+                                  onChange={e => setSellQty(e.target.value)}
+                                  min={1}
+                                  max={h.quantity}
+                                  autoFocus
+                                  style={{
+                                    width: 56, padding: '4px 6px', borderRadius: 5, fontSize: 12,
+                                    border: '1px solid var(--border)', background: 'var(--bg3)',
+                                    color: 'var(--text)', fontFamily: 'var(--mono)',
+                                  }}
+                                />
+                                <button
+                                  onClick={() => {
+                                    if (window.confirm(`${h.stock_name} ${sellQty}주를 시장가로 매도할까요?`)) {
+                                      handleSell(h.stock_code, h.stock_name);
+                                    }
+                                  }}
+                                  disabled={sellLoading}
+                                  style={{ padding: '4px 10px', borderRadius: 5, fontSize: 11, fontWeight: 700,
+                                    cursor: sellLoading ? 'default' : 'pointer', border: 'none',
+                                    background: 'var(--red)', color: '#fff' }}
+                                >{sellLoading ? '...' : '확인'}</button>
+                                <button
+                                  onClick={() => { setSellRow(null); setSellMsg(''); }}
+                                  style={{ padding: '4px 8px', borderRadius: 5, fontSize: 11,
+                                    cursor: 'pointer', border: '1px solid var(--border)',
+                                    background: 'transparent', color: 'var(--text2)' }}
+                                >✕</button>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => { setSellRow(h.stock_code); setSellQty(String(h.quantity)); setSellMsg(''); }}
+                                style={{ padding: '4px 12px', borderRadius: 5, fontSize: 11, fontWeight: 700,
+                                  cursor: 'pointer', border: '1px solid var(--border)',
+                                  background: 'transparent', color: 'var(--red)' }}
+                              >매도</button>
+                            )}
+                          </td>
                         </tr>
                       );
                     })}
                   </tbody>
                 </table>
+              </div>
+            )}
+            {sellMsg && (
+              <div style={{ padding: '10px 20px', borderTop: '1px solid var(--border)', fontSize: 12 }}>
+                {sellMsg}
               </div>
             )}
           </Section>
@@ -506,7 +688,7 @@ export default function DashboardPage() {
                       <th style={thStyle()}>구분</th>
                       <th style={thStyle()}>체결가</th>
                       <th style={thStyle()}>수량</th>
-                      <th style={thStyle()}>수수료</th>
+                      <th style={thStyle()}>수수료+세금</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -533,7 +715,9 @@ export default function DashboardPage() {
                           </td>
                           <td style={tdStyle()}>{Number(t.cntr_pric).toLocaleString()}</td>
                           <td style={tdStyle()}>{Number(t.cntr_qty).toLocaleString()}주</td>
-                          <td style={tdStyle('right', { color: 'var(--text2)' })}>{Number(t.tdy_trde_cmsn).toLocaleString()}</td>
+                          <td style={tdStyle('right', { color: 'var(--text2)' })}>
+                            {(Number(t.tdy_trde_cmsn || 0) + Number(t.tdy_trde_tax || 0)).toLocaleString()}
+                          </td>
                         </tr>
                       );
                     })}
@@ -673,31 +857,55 @@ export default function DashboardPage() {
           <Section
             title="누적 손익 추이"
             right={
-              <div style={{ display: 'flex', gap: 6 }}>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                {chartMode === 'month' && (
+                  <div style={{ display: 'flex', gap: 2, alignItems: 'center', marginRight: 4 }}>
+                    <button onClick={() => shiftMonth(-1)} style={{
+                      width: 22, height: 22, borderRadius: 4, fontSize: 11, cursor: 'pointer',
+                      border: '1px solid var(--border)', background: 'transparent', color: 'var(--text2)', lineHeight: 1,
+                    }}>‹</button>
+                    <span style={{ fontSize: 11, color: 'var(--text2)', fontFamily: 'var(--mono)', minWidth: 76, textAlign: 'center' }}>
+                      {selectedMonthLabel}
+                    </span>
+                    <button onClick={() => shiftMonth(1)} disabled={isCurrentMonth} style={{
+                      width: 22, height: 22, borderRadius: 4, fontSize: 11,
+                      cursor: isCurrentMonth ? 'default' : 'pointer',
+                      border: '1px solid var(--border)', background: 'transparent',
+                      color: isCurrentMonth ? 'var(--border)' : 'var(--text2)', lineHeight: 1,
+                    }}>›</button>
+                  </div>
+                )}
                 {[7, 30, 90].map(d => (
-                  <button key={d} onClick={() => setDays(d)} style={{
+                  <button key={d} onClick={() => { setChartMode('days'); setDays(d); }} style={{
                     padding: '4px 12px', borderRadius: 5, fontSize: 11, cursor: 'pointer',
                     border: '1px solid var(--border)',
-                    background: days === d ? 'var(--green)' : 'transparent',
-                    color: days === d ? '#000' : 'var(--text2)',
+                    background: chartMode === 'days' && days === d ? 'var(--green)' : 'transparent',
+                    color: chartMode === 'days' && days === d ? '#000' : 'var(--text2)',
                     fontFamily: 'var(--mono)', fontWeight: 700, transition: 'all .15s',
                   }}>{d}일</button>
                 ))}
+                <button onClick={() => setChartMode('month')} style={{
+                  padding: '4px 12px', borderRadius: 5, fontSize: 11, cursor: 'pointer',
+                  border: '1px solid var(--border)',
+                  background: chartMode === 'month' ? 'var(--green)' : 'transparent',
+                  color: chartMode === 'month' ? '#000' : 'var(--text2)',
+                  fontFamily: 'var(--mono)', fontWeight: 700, transition: 'all .15s',
+                }}>월별</button>
               </div>
             }
           >
             <div style={{ padding: '20px 24px' }}>
-              {chart.length === 0 ? (
+              {displayChart.length === 0 ? (
                 <div style={{ textAlign: 'center', color: 'var(--text2)', padding: '60px 0', fontSize: 13 }}>
                   거래 이력이 없습니다
                 </div>
               ) : (
                 <ResponsiveContainer width="100%" height={260}>
                   {(() => {
-                    const lastCum = chart[chart.length - 1]?.cumulative ?? 0;
+                    const lastCum = displayChart[displayChart.length - 1]?.cumulative ?? 0;
                     const cumClr  = lastCum >= 0 ? '#39d353' : '#58a6ff';
                     return (
-                      <ComposedChart data={chart} margin={{ top: 5, right: 10, left: 10, bottom: 0 }}>
+                      <ComposedChart data={displayChart} margin={{ top: 5, right: 10, left: 10, bottom: 0 }}>
                         <defs>
                           <linearGradient id="pnlGrad" x1="0" y1="0" x2="0" y2="1">
                             <stop offset="5%"  stopColor={cumClr} stopOpacity={0.2} />
@@ -715,9 +923,9 @@ export default function DashboardPage() {
                           axisLine={false} tickLine={false}
                           tickFormatter={v => Math.abs(v) >= 10000 ? (v / 10000).toFixed(1) + '만' : v.toLocaleString() + '원'}
                         />
-                        <Tooltip content={<ChartTip />} />
+                        <Tooltip content={<ChartTip cumLabel={chartMode === 'month' ? '전체 누적' : '누적'} />} />
                         <Bar dataKey="daily_pnl" radius={[3, 3, 0, 0]} maxBarSize={20}>
-                          {chart.map((d, i) => (
+                          {displayChart.map((d, i) => (
                             <Cell key={i} fill={d.daily_pnl >= 0 ? '#39d353' : '#58a6ff'} fillOpacity={0.7} />
                           ))}
                         </Bar>
@@ -725,12 +933,58 @@ export default function DashboardPage() {
                           type="monotone" dataKey="cumulative"
                           stroke={cumClr} strokeWidth={2}
                           fill="url(#pnlGrad)"
-                          dot={chart.length === 1 ? { r: 5, fill: cumClr, strokeWidth: 0 } : false}
+                          dot={displayChart.length === 1 ? { r: 5, fill: cumClr, strokeWidth: 0 } : false}
                           activeDot={{ r: 4, fill: cumClr }}
                         />
                       </ComposedChart>
                     );
                   })()}
+                </ResponsiveContainer>
+              )}
+            </div>
+          </Section>
+
+          {/* ── 월별 손익 ── */}
+          <Section title="월별 손익">
+            <div style={{ padding: '20px 24px' }}>
+              {monthlyPnlList.length === 0 ? (
+                <div style={{ textAlign: 'center', color: 'var(--text2)', padding: '60px 0', fontSize: 13 }}>
+                  거래 이력이 없습니다
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height={220}>
+                  <ComposedChart data={monthlyPnlList} margin={{ top: 5, right: 10, left: 10, bottom: 0 }}>
+                    <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
+                    <XAxis
+                      dataKey="month" tickFormatter={m => m?.slice(2).replace('-', '.')}
+                      tick={{ fill: 'var(--text2)', fontSize: 11, fontFamily: 'var(--mono)' }}
+                      axisLine={false} tickLine={false}
+                    />
+                    <YAxis
+                      yAxisId="amount"
+                      tick={{ fill: 'var(--text2)', fontSize: 11, fontFamily: 'var(--mono)' }}
+                      axisLine={false} tickLine={false}
+                      tickFormatter={v => Math.abs(v) >= 10000 ? (v / 10000).toFixed(1) + '만' : v.toLocaleString() + '원'}
+                    />
+                    <YAxis
+                      yAxisId="pct" orientation="right"
+                      tick={{ fill: 'var(--text2)', fontSize: 11, fontFamily: 'var(--mono)' }}
+                      axisLine={false} tickLine={false}
+                      tickFormatter={v => `${v}%`}
+                    />
+                    <Tooltip content={<MonthlyPnlTip />} />
+                    <Bar yAxisId="amount" dataKey="pnl" radius={[3, 3, 0, 0]} maxBarSize={36}>
+                      {monthlyPnlList.map((d, i) => (
+                        <Cell key={i} fill={d.pnl >= 0 ? '#39d353' : '#58a6ff'} fillOpacity={0.7} />
+                      ))}
+                    </Bar>
+                    <Line
+                      yAxisId="pct" dataKey="pct" type="monotone"
+                      stroke="#f0883e" strokeWidth={2}
+                      dot={{ r: 3, fill: '#f0883e', strokeWidth: 0 }}
+                      connectNulls
+                    />
+                  </ComposedChart>
                 </ResponsiveContainer>
               )}
             </div>

@@ -2,7 +2,8 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import Layout from '../components/Layout';
 import api from '../api/client';
-import { getStockTrades } from '../api/client';
+import { getStockTrades, getMonthlyPortfolio } from '../api/client';
+
 
 const COLORS = [
   '#39d353', '#58a6ff', '#f0883e', '#d2a8ff', '#ffa657',
@@ -172,6 +173,8 @@ function StockTradeModal({ stock, onClose }) {
 export default function PortfolioPage() {
   const [data, setData]       = useState([]);
   const [days, setDays]       = useState(30);
+  const [mode, setMode]       = useState('days'); // 'days' | 'month'
+  const [selectedMonth, setSelectedMonth] = useState(() => new Date().toISOString().slice(0, 7));
   const [loading, setLoading] = useState(true);
   const [lastAt, setLastAt]   = useState('');
   const [selected, setSelected] = useState(null);
@@ -179,15 +182,25 @@ export default function PortfolioPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api.get(`/dashboard/portfolio?days=${days}`);
+      const res = mode === 'month'
+        ? await getMonthlyPortfolio(selectedMonth)
+        : await api.get(`/dashboard/portfolio?days=${days}`);
       setData(res.data || []);
     } finally {
       setLoading(false);
       setLastAt(new Date().toLocaleTimeString('ko-KR'));
     }
-  }, [days]);
+  }, [days, mode, selectedMonth]);
 
   useEffect(() => { load(); }, [load]);
+
+  const [selYear, selMon] = selectedMonth.split('-').map(Number);
+  const selectedMonthLabel = `${selYear}년 ${selMon}월`;
+  const isCurrentMonth = selectedMonth === new Date().toISOString().slice(0, 7);
+  const shiftMonth = (delta) => {
+    const d = new Date(selYear, selMon - 1 + delta, 1);
+    setSelectedMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  };
 
   const totalAmount = data.reduce((s, d) => s + d.total_amount, 0);
   const totalPnl    = data.reduce((s, d) => s + d.realized_pnl, 0);
@@ -208,16 +221,41 @@ export default function PortfolioPage() {
 
       {/* 기간 선택 + 요약 카드 */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
-        <div style={{ display: 'flex', gap: 6 }}>
-          {[7, 30, 90].map(d => (
-            <button key={d} onClick={() => setDays(d)} style={{
-              padding: '6px 16px', borderRadius: 5, fontSize: 12, cursor: 'pointer',
-              border: '1px solid var(--border)',
-              background: days === d ? 'var(--green)' : 'transparent',
-              color: days === d ? '#000' : 'var(--text2)',
-              fontFamily: 'var(--mono)', fontWeight: 700, transition: 'all .15s',
-            }}>{d}일</button>
-          ))}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {mode === 'month' ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <button onClick={() => shiftMonth(-1)} style={{
+                width: 24, height: 24, borderRadius: 4, fontSize: 12, cursor: 'pointer',
+                border: '1px solid var(--border)', background: 'transparent', color: 'var(--text2)', lineHeight: 1,
+              }}>‹</button>
+              <span style={{ fontSize: 12, fontFamily: 'var(--mono)', fontWeight: 700, minWidth: 80, textAlign: 'center' }}>
+                {selectedMonthLabel}
+              </span>
+              <button onClick={() => shiftMonth(1)} disabled={isCurrentMonth} style={{
+                width: 24, height: 24, borderRadius: 4, fontSize: 12,
+                cursor: isCurrentMonth ? 'default' : 'pointer',
+                border: '1px solid var(--border)', background: 'transparent',
+                color: isCurrentMonth ? 'var(--border)' : 'var(--text2)', lineHeight: 1,
+              }}>›</button>
+            </div>
+          ) : (
+            [7, 30, 90].map(d => (
+              <button key={d} onClick={() => { setMode('days'); setDays(d); }} style={{
+                padding: '6px 16px', borderRadius: 5, fontSize: 12, cursor: 'pointer',
+                border: '1px solid var(--border)',
+                background: mode === 'days' && days === d ? 'var(--green)' : 'transparent',
+                color: mode === 'days' && days === d ? '#000' : 'var(--text2)',
+                fontFamily: 'var(--mono)', fontWeight: 700, transition: 'all .15s',
+              }}>{d}일</button>
+            ))
+          )}
+          <button onClick={() => setMode(mode === 'month' ? 'days' : 'month')} style={{
+            padding: '6px 16px', borderRadius: 5, fontSize: 12, cursor: 'pointer',
+            border: '1px solid var(--border)',
+            background: mode === 'month' ? 'var(--green)' : 'transparent',
+            color: mode === 'month' ? '#000' : 'var(--text2)',
+            fontFamily: 'var(--mono)', fontWeight: 700, transition: 'all .15s',
+          }}>월별</button>
         </div>
         {!loading && data.length > 0 && (
           <div style={{ display: 'flex', gap: 20 }}>
@@ -242,7 +280,7 @@ export default function PortfolioPage() {
         <div style={{
           background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 10,
           padding: '80px', textAlign: 'center', color: 'var(--text2)', fontSize: 13,
-        }}>{days}일 이내 매수 내역이 없습니다</div>
+        }}>{mode === 'month' ? `${selectedMonthLabel}에 매수 내역이 없습니다` : `${days}일 이내 매수 내역이 없습니다`}</div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 

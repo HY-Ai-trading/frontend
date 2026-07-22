@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import Layout from '../components/Layout';
 import Pagination, { PAGE_SIZE } from '../components/Pagination';
-import { getTrades, syncOrders, recalcProfit } from '../api/client';
+import { getTrades, getMonthlyTrades, syncOrders, recalcProfit } from '../api/client';
 
 const won  = (n) => Number(n || 0).toLocaleString('ko-KR') + '원';
 const diff = (n) => (n >= 0 ? '+' : '') + Number(n || 0).toLocaleString('ko-KR') + '원';
@@ -227,16 +227,19 @@ export default function TradesPage() {
   const [recalcing, setRecalcing] = useState(false);
   const [lastAt, setLastAt]   = useState('');
   const [selected, setSelected] = useState(null);
+  const [mode, setMode]       = useState('all'); // 'all' | 'month'
+  const [selectedMonth, setSelectedMonth] = useState(() => new Date().toISOString().slice(0, 7));
 
   const load = useCallback(() => {
-    getTrades()
+    const req = mode === 'month' ? getMonthlyTrades(selectedMonth) : getTrades();
+    req
       .then(r => {
         setTrades(r.data || []);
         setLastAt(new Date().toLocaleTimeString('ko-KR'));
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  }, [mode, selectedMonth]);
 
   const handleSync = () => {
     setSyncing(true);
@@ -255,10 +258,21 @@ export default function TradesPage() {
   };
 
   useEffect(() => {
+    setLoading(true);
     load();
     const t = setInterval(load, 15000);
     return () => clearInterval(t);
   }, [load]);
+
+  useEffect(() => { setPage(1); }, [mode, selectedMonth]);
+
+  const [selYear, selMon] = selectedMonth.split('-').map(Number);
+  const selectedMonthLabel = `${selYear}년 ${selMon}월`;
+  const isCurrentMonth = selectedMonth === new Date().toISOString().slice(0, 7);
+  const shiftMonth = (delta) => {
+    const d = new Date(selYear, selMon - 1 + delta, 1);
+    setSelectedMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  };
 
   const buyCnt   = trades.filter(t => t.action === 'BUY').length;
   const sellCnt  = trades.filter(t => t.action === 'SELL').length;
@@ -306,7 +320,7 @@ export default function TradesPage() {
           padding: '12px 20px', borderBottom: '1px solid var(--border)',
           display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
         }}>
-          <div style={{ display: 'flex', gap: 4 }}>
+          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
             {tabs.map(({ key, label, count }) => {
               const active = filter === key;
               const accentColor = key === 'BUY' ? 'var(--green)' : key === 'SELL' ? 'var(--red)' : 'var(--text)';
@@ -322,6 +336,31 @@ export default function TradesPage() {
                 </button>
               );
             })}
+            <div style={{ width: 1, height: 18, background: 'var(--border)', margin: '0 4px' }} />
+            {mode === 'month' && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <button onClick={() => shiftMonth(-1)} style={{
+                  width: 22, height: 22, borderRadius: 4, fontSize: 12, cursor: 'pointer',
+                  border: '1px solid var(--border)', background: 'transparent', color: 'var(--text2)', lineHeight: 1,
+                }}>‹</button>
+                <span style={{ fontSize: 12, fontFamily: 'var(--mono)', fontWeight: 700, minWidth: 76, textAlign: 'center' }}>
+                  {selectedMonthLabel}
+                </span>
+                <button onClick={() => shiftMonth(1)} disabled={isCurrentMonth} style={{
+                  width: 22, height: 22, borderRadius: 4, fontSize: 12,
+                  cursor: isCurrentMonth ? 'default' : 'pointer',
+                  border: '1px solid var(--border)', background: 'transparent',
+                  color: isCurrentMonth ? 'var(--border)' : 'var(--text2)', lineHeight: 1,
+                }}>›</button>
+              </div>
+            )}
+            <button onClick={() => { setLoading(true); setMode(mode === 'month' ? 'all' : 'month'); }} style={{
+              padding: '5px 14px', borderRadius: 6, fontSize: 12, cursor: 'pointer',
+              fontFamily: 'var(--mono)', fontWeight: mode === 'month' ? 700 : 400,
+              border: mode === 'month' ? '1.5px solid var(--green)' : '1.5px solid var(--border)',
+              background: mode === 'month' ? 'rgba(57,211,83,0.12)' : 'transparent',
+              color: mode === 'month' ? 'var(--green)' : 'var(--text2)', transition: 'all .12s',
+            }}>월별</button>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             {lastAt && (
